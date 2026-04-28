@@ -6,6 +6,7 @@ import {AutoMintAgent} from "../src/AutoMintAgent.sol";
 import {AutoMintFactory} from "../src/AutoMintFactory.sol";
 import {SampleNFT} from "../src/SampleNFT.sol";
 import {SupplyGateCondition} from "../src/MintConditions.sol";
+import {ISovereignAgentFactory, ISovereignAgentHarness} from "../src/interfaces/ISovereignAgentFactory.sol";
 
 contract AutoMintAgentTest is Test {
     AutoMintFactory internal factory;
@@ -17,7 +18,9 @@ contract AutoMintAgentTest is Test {
     address internal asyncDelivery = 0x5A16214fF555848411544b005f7Ac063742f39F6;
     address internal ritualWallet = 0x532F0dF0896F353d8C3DD8cc134e8129DA2a3948;
     address internal teeRegistry  = 0x9644e8562cE0Fe12b4deeC4163c064A8862Bf47F;
+    address internal sovereignFactory = 0x9dC4C054e53bCc4Ce0A0Ff09E890A7a8e817f304;
     address internal mockExecutor = makeAddr("executor");
+    address internal mockHarness  = makeAddr("harness");
 
     bytes4 constant MINT_SELECTOR = SampleNFT.mint.selector;
 
@@ -30,6 +33,14 @@ contract AutoMintAgentTest is Test {
         vm.mockCall(scheduler, abi.encodeWithSignature("cancel(bytes32)"), abi.encode());
         vm.mockCall(ritualWallet, abi.encodeWithSignature("deposit(uint256)"), abi.encode());
         vm.mockCall(ritualWallet, abi.encodeWithSignature("emergencyWithdraw(address)"), abi.encode());
+
+        // Mock SovereignAgentFactory
+        vm.mockCall(sovereignFactory, abi.encodeWithSelector(ISovereignAgentFactory.deployHarness.selector), abi.encode(mockHarness));
+        vm.mockCall(sovereignFactory, abi.encodeWithSelector(ISovereignAgentFactory.predictHarness.selector), abi.encode(mockHarness, bytes32(0)));
+        // Mock harness configureFundAndStart (returns jobId 1)
+        vm.mockCall(mockHarness, abi.encodeWithSelector(ISovereignAgentHarness.configureFundAndStart.selector), abi.encode(uint256(1)));
+        vm.mockCall(mockHarness, abi.encodeWithSelector(ISovereignAgentHarness.stop.selector), abi.encode());
+        vm.mockCall(mockHarness, abi.encodeWithSelector(ISovereignAgentHarness.restart.selector), abi.encode(uint256(2)));
 
         // Mock TEEServiceRegistry to return mockExecutor
         vm.mockCall(
@@ -361,13 +372,14 @@ contract AutoMintAgentTest is Test {
 
     function test_getStatus() public {
         _startAgent();
-        (bool running, bool _paused, uint32 count, uint32 max, bool condMet, address exec) = agent.getStatus();
+        (bool running, bool _paused, uint32 count, uint32 max, bool condMet, address exec, address _harness) = agent.getStatus();
         assertTrue(running);
         assertFalse(_paused);
         assertEq(count, 0);
         assertEq(max, 5);
         assertTrue(condMet);
         assertEq(exec, mockExecutor);
+        assertEq(_harness, address(0));
     }
 
     // ── ERC721 receiver ───────────────────────────────────────────────────────
@@ -403,6 +415,71 @@ contract AutoMintAgentTest is Test {
 
         assertEq(a.executionCount(), maxExec);
         assertFalse(a.isRunning());
+    }
+
+    // ── Harness ───────────────────────────────────────────────────────────────
+
+    function test_launchHarnessDeploysAndConfigures() public {
+        vm.prank(owner);
+        agent.initExecutor();
+
+        vm.prank(owner);
+        agent.launchHarness(bytes32(0), 2000, 5, 5000);
+
+        assertEq(agent.harness(), mockHarness);
+    }
+
+    function test_launchHarnessEmitsEvent() public {
+        vm.prank(owner);
+        agent.initExecutor();
+
+        vm.expectEmit(true, false, false, false);
+        emit AutoMintAgent.HarnessDeployed(mockHarness);
+
+        vm.prank(owner);
+        agent.launchHarness(bytes32(0), 2000, 5, 5000);
+    }
+
+    function test_launchHarnessRevertsWithoutExecutor() public {
+        vm.prank(owner);
+        vm.expectRevert(AutoMintAgent.ExecutorNotSet.selector);
+        agent.launchHarness(bytes32(0), 2000, 5, 5000);
+    }
+
+    function test_stopHarness() public {
+        vm.prank(owner);
+        agent.initExecutor();
+        vm.prank(owner);
+        agent.launchHarness(bytes32(0), 2000, 5, 5000);
+
+        vm.prank(owner);
+        agent.stopHarness(); // should not revert
+    }
+
+    function test_restartHarness() public {
+        vm.prank(owner);
+        agent.initExecutor();
+        vm.prank(owner);
+        agent.launchHarness(bytes32(0), 2000, 5, 5000);
+
+        vm.prank(owner);
+        agent.restartHarness(); // should not revert
+    }
+
+    function test_stopHarnessRevertsWhenNotDeployed() public {
+        vm.prank(owner);
+        vm.expectRevert(AutoMintAgent.HarnessNotDeployed.selector);
+        agent.stopHarness();
+    }
+
+    function test_getStatusIncludesHarness() public {
+        vm.prank(owner);
+        agent.initExecutor();
+        vm.prank(owner);
+        agent.launchHarness(bytes32(0), 2000, 5, 5000);
+
+        (,,,,, , address _harness) = agent.getStatus();
+        assertEq(_harness, mockHarness);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

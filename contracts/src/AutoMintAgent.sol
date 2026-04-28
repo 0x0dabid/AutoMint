@@ -8,9 +8,17 @@ import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 import {IScheduler} from "./interfaces/IScheduler.sol";
 import {IRitualWallet} from "./interfaces/IRitualWallet.sol";
-import {ISovereignAgent, SovereignAgentLib} from "./interfaces/ISovereignAgent.sol";
+import {SovereignAgentLib} from "./interfaces/ISovereignAgent.sol";
 import {ITEEServiceRegistry} from "./interfaces/ITEEServiceRegistry.sol";
 import {IMintCondition} from "./interfaces/IMintCondition.sol";
+import {
+    ISovereignAgentFactory,
+    ISovereignAgentHarness,
+    SovereignAgentParams,
+    SovereignScheduleConfig,
+    SovereignRollingConfig,
+    StorageRef
+} from "./interfaces/ISovereignAgentFactory.sol";
 
 contract AutoMintAgent is IERC721Receiver, ReentrancyGuard {
     using Strings for address;
@@ -24,6 +32,9 @@ contract AutoMintAgent is IERC721Receiver, ReentrancyGuard {
 
     // ── Precompile ────────────────────────────────────────────────────────────
     address public constant SOVEREIGN_AGENT_PRECOMPILE = 0x000000000000000000000000000000000000080C;
+
+    // ── SovereignAgentFactory ─────────────────────────────────────────────────
+    address public constant SOVEREIGN_AGENT_FACTORY = 0x9dC4C054e53bCc4Ce0A0Ff09E890A7a8e817f304;
 
     // ── Sovereign Agent config ────────────────────────────────────────────────
     uint256 public constant LOCK_DURATION  = 5000;   // blocks for RitualWallet deposit
@@ -55,6 +66,9 @@ contract AutoMintAgent is IERC721Receiver, ReentrancyGuard {
     // For the Ritual LLM provider this can be empty bytes since no API key is needed.
     bytes public encryptedSecrets;
 
+    // Harness deployed via SovereignAgentFactory — listed on Ritual explorer
+    address public harness;
+
     bytes32 public currentJobId;    // active Scheduler job
     bytes32 public sovereignJobId;  // active Sovereign Agent TEE job
 
@@ -80,6 +94,7 @@ contract AutoMintAgent is IERC721Receiver, ReentrancyGuard {
     event AgentResumed(address indexed owner);
     event NFTTransferred(address indexed to, uint256 tokenId);
     event BalanceWithdrawn(address indexed to, uint256 amount);
+    event HarnessDeployed(address indexed harness);
 
     // ── Errors ────────────────────────────────────────────────────────────────
     error NotOwner();
@@ -95,6 +110,7 @@ contract AutoMintAgent is IERC721Receiver, ReentrancyGuard {
     error ExecutorNotSet();
     error NoExecutorFound();
     error WithdrawFailed();
+    error HarnessNotDeployed();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
@@ -172,6 +188,100 @@ contract AutoMintAgent is IERC721Receiver, ReentrancyGuard {
     /// For the Ritual LLM provider this may be left empty.
     function setEncryptedSecrets(bytes calldata _secrets) external onlyOwner {
         encryptedSecrets = _secrets;
+    }
+
+    // ── Harness management ────────────────────────────────────────────────────
+
+    /// Deploy a SovereignAgentHarness via the factory and configure it for minting.
+    /// The harness is listed on https://explorer.ritualfoundation.org/agents.
+    /// Recommended: frequency=2000, windowNumCalls=5 (fits the 10,000 rolling limit).
+    function launchHarness(
+        bytes32 salt,
+        uint32  frequency,
+        uint32  windowNumCalls,
+        uint256 lockDuration
+    ) external payable onlyOwner {
+        if (executor == address(0)) revert ExecutorNotSet();
+
+        // 1. Deploy the harness (CREATE3 via factory)
+        address deployed = ISovereignAgentFactory(SOVEREIGN_AGENT_FACTORY).deployHarness(salt);
+        harness = deployed;
+
+        // 2. Build mint prompt
+        bytes memory mintCalldata = abi.encodePacked(mintSelector, mintArgs);
+        string memory prompt = string.concat(
+            "Execute an NFT mint on Ritual Chain (chainId 1979). ",
+            "Send a transaction to contract ", nftContract.toHexString(),
+            " with the following hex calldata: 0x", _toHex(mintCalldata),
+            ". Use eth_sendRawTransaction. Do not ask for confirmation."
+        );
+
+        // 3. Build params — deliveryTarget must equal the harness itself
+        StorageRef memory empty = StorageRef("", "", "");
+        StorageRef[] memory noSkills = new StorageRef[](0);
+        string[]    memory noTools  = new string[](0);
+
+        SovereignAgentParams memory agentParams = SovereignAgentParams({
+            executor:                    executor,
+            ttl:                         SOVEREIGN_TTL,
+            userPublicKey:               bytes(""),
+            pollIntervalBlocks:          uint64(10),
+            maxPollBlock:                uint64(500),
+            taskIdMarker:                "",
+            deliveryTarget:              deployed,   // harness handles its own callbacks
+            deliverySelector:            bytes4(0),
+            deliveryGasLimit:            DELIVERY_GAS,
+            deliveryMaxFeePerGas:        20 gwei,
+            deliveryMaxPriorityFeePerGas: 1 gwei,
+            cliType:                     6,          // ZeroClaw
+            prompt:                      prompt,
+            encryptedSecrets:            encryptedSecrets,
+            convoHistory:                empty,
+            output:                      empty,
+            skills:                      noSkills,
+            systemPrompt:                empty,
+            model:                       SOVEREIGN_MODEL,
+            tools:                       noTools,
+            maxTurns:                    3,
+            maxTokens:                   500,
+            rpcUrls:                     RPC_URLS
+        });
+
+        SovereignScheduleConfig memory schedConfig = SovereignScheduleConfig({
+            schedulerGas:            300_000,
+            frequency:               frequency,
+            schedulerTtl:            uint32(SOVEREIGN_TTL),
+            maxFeePerGas:            20 gwei,
+            maxPriorityFeePerGas:    1 gwei,
+            value:                   0
+        });
+
+        SovereignRollingConfig memory rollConfig = SovereignRollingConfig({
+            windowNumCalls:          windowNumCalls,
+            rolloverThresholdBps:    5000,
+            rolloverRetryEveryCalls: 3
+        });
+
+        ISovereignAgentHarness(deployed).configureFundAndStart{value: msg.value}(
+            agentParams,
+            schedConfig,
+            rollConfig,
+            lockDuration
+        );
+
+        emit HarnessDeployed(deployed);
+    }
+
+    /// Stop the harness (pauses execution; harness stays on-chain).
+    function stopHarness() external onlyOwner {
+        if (harness == address(0)) revert HarnessNotDeployed();
+        ISovereignAgentHarness(harness).stop();
+    }
+
+    /// Restart a previously stopped harness.
+    function restartHarness() external onlyOwner {
+        if (harness == address(0)) revert HarnessNotDeployed();
+        ISovereignAgentHarness(harness).restart();
     }
 
     // ── Start / Cancel ────────────────────────────────────────────────────────
@@ -351,7 +461,8 @@ contract AutoMintAgent is IERC721Receiver, ReentrancyGuard {
             uint32 _executionCount,
             uint32 _maxExecutions,
             bool _conditionMet,
-            address _executor
+            address _executor,
+            address _harness
         )
     {
         _isRunning      = isRunning;
@@ -359,6 +470,7 @@ contract AutoMintAgent is IERC721Receiver, ReentrancyGuard {
         _executionCount = executionCount;
         _maxExecutions  = maxExecutions;
         _executor       = executor;
+        _harness        = harness;
 
         if (condition != address(0)) {
             try IMintCondition(condition).shouldMint(nftContract, address(this)) returns (bool ok) {
