@@ -11,7 +11,11 @@ export const wagmiConfig = createConfig({
     walletConnect({ projectId }),
   ],
   transports: {
-    [ritualChain.id]: http("https://rpc.ritualfoundation.org"),
+    // Prefer the server-side proxy so the browser never needs direct RPC access.
+    // Falls back to the public RPC or whatever is set in NEXT_PUBLIC_RPC_URL.
+    [ritualChain.id]: http(
+      process.env.NEXT_PUBLIC_RPC_URL ?? "https://rpc.ritualfoundation.org",
+    ),
   },
 });
 

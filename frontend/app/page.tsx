@@ -111,8 +111,8 @@ export default function DashboardPage() {
           {[
             { label: "Scheduler", addr: CONTRACT_ADDRESSES.scheduler },
             { label: "RitualWallet", addr: CONTRACT_ADDRESSES.ritualWallet },
-            { label: "AgentHeartbeat", addr: CONTRACT_ADDRESSES.agentHeartbeat },
             { label: "AsyncDelivery", addr: CONTRACT_ADDRESSES.asyncDelivery },
+            { label: "AsyncJobTracker", addr: CONTRACT_ADDRESSES.asyncJobTracker },
           ].map(({ label, addr }) => (
             <div key={label} className="flex gap-2 text-gray-600">
               <span className="text-gray-700 w-32">{label}</span>

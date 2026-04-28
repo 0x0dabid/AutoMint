@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import { encodeAbiParameters, parseAbiParameters } from "viem";
-import { CONTRACT_ADDRESSES, FACTORY_ABI } from "@/lib/contracts";
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract } from "wagmi";
+import { encodeAbiParameters, parseAbiParameters, formatEther } from "viem";
+import { CONTRACT_ADDRESSES, FACTORY_ABI, ERC721_ABI } from "@/lib/contracts";
 import { TxStatusBadge } from "@/components/TxStatusBadge";
 import { TxState } from "@/lib/tx-machine";
 import { cn } from "@/lib/utils";
@@ -41,6 +41,15 @@ export default function CreateAgentPage() {
   });
 
   const [txState, setTxState] = useState<TxState>("idle");
+
+  // Read mintPrice from the NFT contract when a valid address is entered
+  const isValidAddress = /^0x[0-9a-fA-F]{40}$/.test(form.nftContract);
+  const { data: mintPriceRaw } = useReadContract({
+    address: form.nftContract as `0x${string}`,
+    abi: ERC721_ABI,
+    functionName: "mintPrice",
+    query: { enabled: isValidAddress },
+  });
 
   const { writeContract, data: createHash } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: createHash });
@@ -92,8 +101,11 @@ export default function CreateAgentPage() {
     }
   }
 
-  // Estimate cost
-  const estimatedCost = (Number(form.maxExecutions) * 0.001).toFixed(3);
+  // Cost estimate: mint price × quantity × executions (from contract, not hardcoded)
+  const mintPrice = typeof mintPriceRaw === "bigint" ? mintPriceRaw : 0n;
+  const qty = BigInt(form.mintQty || "1");
+  const totalMintCost = mintPrice * qty * BigInt(form.maxExecutions || "0");
+  const estimatedCost = totalMintCost > 0n ? formatEther(totalMintCost) : "—";
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -231,10 +243,12 @@ export default function CreateAgentPage() {
           <div className="grid grid-cols-2 gap-1 text-xs font-mono">
             <span className="text-gray-600">Executions:</span>
             <span className="text-gray-300">{form.maxExecutions}</span>
-            <span className="text-gray-600">Gas per mint:</span>
-            <span className="text-gray-300">~0.001 RITUAL</span>
-            <span className="text-gray-600">Total estimate:</span>
-            <span className="text-green-400">{estimatedCost} RITUAL</span>
+            <span className="text-gray-600">Mint price (contract):</span>
+            <span className="text-gray-300">
+              {isValidAddress && mintPrice > 0n ? `${formatEther(mintPrice)} RITUAL` : isValidAddress ? "free" : "enter contract"}
+            </span>
+            <span className="text-gray-600">Total mint cost:</span>
+            <span className="text-green-400">{estimatedCost !== "—" ? `${estimatedCost} RITUAL` : "—"}</span>
           </div>
         </div>
 
