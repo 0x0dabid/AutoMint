@@ -1,0 +1,63 @@
+{
+  "project": "AutoMint",
+  "chain": "Ritual",
+  "chainId": 1979,
+  "buildDate": "2026-04-28",
+  "phases": {
+    "architecture": { "status": "complete", "notes": "AutoMintFactory + AutoMintAgent + MintConditions + SampleNFT" },
+    "contracts": {
+      "status": "complete",
+      "files": [
+        "contracts/src/AutoMintFactory.sol",
+        "contracts/src/AutoMintAgent.sol",
+        "contracts/src/MintConditions.sol",
+        "contracts/src/SampleNFT.sol",
+        "contracts/src/interfaces/IScheduler.sol",
+        "contracts/src/interfaces/IRitualWallet.sol",
+        "contracts/src/interfaces/IAgentHeartbeat.sol",
+        "contracts/src/interfaces/IAsyncDelivery.sol",
+        "contracts/src/interfaces/IMintCondition.sol",
+        "contracts/src/interfaces/IPersistentAgent.sol",
+        "contracts/src/interfaces/ISovereignAgent.sol"
+      ],
+      "compiled": true,
+      "compiler": "solc 0.8.24+commit.e11b9ed9 (via npm solc, evmVersion=cancun)"
+    },
+    "tests": {
+      "status": "complete",
+      "files": [
+        "contracts/test/AutoMintFactory.t.sol",
+        "contracts/test/AutoMintAgent.t.sol",
+        "contracts/test/MintConditions.t.sol",
+        "contracts/test/SampleNFT.t.sol"
+      ],
+      "notes": "Unit tests + fuzz tests. Requires forge (solc download) to run."
+    },
+    "scripts": {
+      "status": "complete",
+      "files": [
+        "contracts/script/Deploy.s.sol",
+        "contracts/script/CreateAgent.s.sol"
+      ]
+    },
+    "frontend": {
+      "status": "complete",
+      "stack": "Next.js 14 + wagmi v2 + viem",
+      "pages": ["/", "/create", "/agents/[address]", "/gallery"],
+      "built": true
+    },
+    "deployment": {
+      "status": "pending",
+      "notes": "Requires funded wallet and Ritual Chain RPC access"
+    }
+  },
+  "systemContracts": {
+    "Scheduler": "0x56e776BAE2DD60664b69Bd5F865F1180ffB7D58B",
+    "RitualWallet": "0x532F0dF0896F353d8C3DD8cc134e8129DA2a3948",
+    "AgentHeartbeat": "0xEF505E801f1Db392B5289690E2ffc20e840A3aCa",
+    "AsyncDelivery": "0x5A16214fF555848411544b005f7Ac063742f39F6",
+    "AsyncJobTracker": "0xC069FFCa0389f44eCA2C626e55491b0ab045AEF5",
+    "TEEServiceRegistry": "0x9644e8562cE0Fe12b4deeC4163c064A8862Bf47F",
+    "ModelPricingRegistry": "0x7A85F48b971ceBb75491b61abe279728F4c4384f"
+  }
+}

@@ -1,0 +1,33 @@
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Node
+node_modules/
+.npm
+
+# Next.js
+frontend/.next/
+frontend/out/
+frontend/node_modules/
+
+# Foundry
+contracts/out/
+contracts/cache/
+contracts/.gas-snapshot
+
+# Hardhat (compiler helper)
+contracts-hardhat/cache/
+contracts-hardhat/artifacts/
+contracts-hardhat/node_modules/
+
+# Deployment artifacts (commit these after deploy)
+# deployments.json
+
+# Build
+.ritual-build/*.json.bak
+
+# OS
+.DS_Store
+Thumbs.db
