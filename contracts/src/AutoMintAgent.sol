@@ -23,8 +23,9 @@ contract AutoMintAgent is IERC721Receiver, ReentrancyGuard {
     address public constant PERSISTENT_AGENT_PRECOMPILE = 0x0000000000000000000000000000000000000820;
     address public constant SOVEREIGN_AGENT_PRECOMPILE = 0x000000000000000000000000000000000000080C;
 
-    // ── Heartbeat ─────────────────────────────────────────────────────────────
+    // ── Heartbeat & wallet ────────────────────────────────────────────────────
     uint256 public constant HEARTBEAT_INTERVAL = 100; // blocks
+    uint256 public constant LOCK_DURATION = 5000;     // blocks to lock RitualWallet deposit
     string public constant MANIFEST_CID = "bafybeiabc123automint"; // updated post-deploy
 
     // ── State ─────────────────────────────────────────────────────────────────
@@ -48,6 +49,8 @@ contract AutoMintAgent is IERC721Receiver, ReentrancyGuard {
 
     uint256 public lastHeartbeatBlock;
 
+    mapping(bytes32 => bool) private _processed; // idempotency guard for async callbacks
+
     struct ExecutionRecord {
         uint256 blockNumber;
         bool success;
@@ -59,6 +62,7 @@ contract AutoMintAgent is IERC721Receiver, ReentrancyGuard {
     event AgentStarted(address indexed owner, address indexed nftContract, uint32 maxExecutions);
     event WakeUpCalled(uint256 indexed executionIndex, uint256 blockNumber);
     event MintAttempted(uint256 indexed executionIndex, bool success);
+    event ConditionFailed(uint256 indexed executionIndex, address condition);
     event HeartbeatPosted(uint256 blockNumber);
     event AgentCancelled(address indexed owner);
     event AgentPaused(address indexed owner);
@@ -76,6 +80,7 @@ contract AutoMintAgent is IERC721Receiver, ReentrancyGuard {
     error NotRunning();
     error Paused();
     error MaxExecutionsReached();
+    error NotPausedOrStopped();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
@@ -169,12 +174,15 @@ contract AutoMintAgent is IERC721Receiver, ReentrancyGuard {
 
         // Check optional mint condition
         if (condition != address(0)) {
+            bool conditionMet = false;
             try IMintCondition(condition).shouldMint(nftContract, address(this)) returns (bool ok) {
-                if (!ok) {
-                    _scheduleNext(interval);
-                    return;
-                }
+                conditionMet = ok;
             } catch {}
+            if (!conditionMet) {
+                emit ConditionFailed(executionCount, condition);
+                _scheduleNext(interval);
+                return;
+            }
         }
 
         // Invoke Sovereign Agent precompile for TEE-executed mint
@@ -197,6 +205,8 @@ contract AutoMintAgent is IERC721Receiver, ReentrancyGuard {
 
     function onSovereignAgentResult(bytes32 jobId, bytes calldata result) external onlyAsyncDelivery {
         if (jobId != sovereignJobId) return;
+        if (_processed[jobId]) return;
+        _processed[jobId] = true;
 
         bool success = result.length > 0 && result[0] == 0x01;
 
@@ -233,7 +243,7 @@ contract AutoMintAgent is IERC721Receiver, ReentrancyGuard {
         uint32 _maxExecutions,
         address _condition
     ) external onlyOwner {
-        require(paused || !isRunning, "Agent: must be paused or stopped");
+        if (!paused && isRunning) revert NotPausedOrStopped();
         nftContract = _nftContract;
         mintSelector = _mintSelector;
         mintArgs = _mintArgs;
@@ -245,7 +255,7 @@ contract AutoMintAgent is IERC721Receiver, ReentrancyGuard {
     // ── Fund / Withdraw ───────────────────────────────────────────────────────
 
     function depositToRitualWallet() external payable onlyOwner {
-        IRitualWallet(RITUAL_WALLET).deposit{value: msg.value}(address(this));
+        IRitualWallet(RITUAL_WALLET).deposit{value: msg.value}(LOCK_DURATION);
     }
 
     function withdraw() external onlyOwner nonReentrant {

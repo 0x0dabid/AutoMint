@@ -2,7 +2,8 @@
 pragma solidity ^0.8.24;
 
 interface IRitualWallet {
-    function deposit(address account) external payable;
+    // lockDuration is in blocks; deposit locks funds until block.number + lockDuration
+    function deposit(uint256 lockDuration) external payable;
 
     function withdraw(address account, uint256 amount) external;
 
@@ -13,6 +14,8 @@ interface IRitualWallet {
     function balanceOf(address account) external view returns (uint256);
 
     function lockedBalanceOf(address account) external view returns (uint256);
+
+    function lockUntil(address account) external view returns (uint256);
 
     function emergencyWithdraw(address account) external;
 }

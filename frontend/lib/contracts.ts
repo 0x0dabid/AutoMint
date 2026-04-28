@@ -2,10 +2,12 @@
 export const CONTRACT_ADDRESSES = {
   factory: (process.env.NEXT_PUBLIC_FACTORY_ADDRESS ?? "0x0000000000000000000000000000000000000000") as `0x${string}`,
   sampleNFT: (process.env.NEXT_PUBLIC_SAMPLE_NFT_ADDRESS ?? "0x0000000000000000000000000000000000000000") as `0x${string}`,
-  agentHeartbeat: "0xEF505E801f1Db392B5289690E2ffc20e840A3aCa" as `0x${string}`,
+  // System contracts (fixed on Ritual Chain — do not change)
   scheduler: "0x56e776BAE2DD60664b69Bd5F865F1180ffB7D58B" as `0x${string}`,
   ritualWallet: "0x532F0dF0896F353d8C3DD8cc134e8129DA2a3948" as `0x${string}`,
   asyncDelivery: "0x5A16214fF555848411544b005f7Ac063742f39F6" as `0x${string}`,
+  asyncJobTracker: "0xC069FFCa0389f44eCA2C626e55491b0ab045AEF5" as `0x${string}`,
+  teeServiceRegistry: "0x9644e8562cE0Fe12b4deeC4163c064A8862Bf47F" as `0x${string}`,
 };
 
 // ── AutoMintFactory ABI ───────────────────────────────────────────────────────

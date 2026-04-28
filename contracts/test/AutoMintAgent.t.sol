@@ -30,7 +30,7 @@ contract AutoMintAgentTest is Test {
         vm.mockCall(heartbeat, abi.encodeWithSignature("register(string)"), abi.encode());
         vm.mockCall(heartbeat, abi.encodeWithSignature("beat(string)"), abi.encode());
         vm.mockCall(heartbeat, abi.encodeWithSignature("deregister()"), abi.encode());
-        vm.mockCall(ritualWallet, abi.encodeWithSignature("deposit(address)"), abi.encode());
+        vm.mockCall(ritualWallet, abi.encodeWithSignature("deposit(uint256)"), abi.encode());
         vm.mockCall(ritualWallet, abi.encodeWithSignature("emergencyWithdraw(address)"), abi.encode());
 
         // Create agent via factory
@@ -264,7 +264,7 @@ contract AutoMintAgentTest is Test {
     function test_cannotUpdateWhenRunning() public {
         vm.startPrank(owner);
         agent.start(0);
-        vm.expectRevert("Agent: must be paused or stopped");
+        vm.expectRevert(AutoMintAgent.NotPausedOrStopped.selector);
         agent.updateParams(address(nft), MINT_SELECTOR, bytes(""), 200, 20, address(0));
         vm.stopPrank();
     }
